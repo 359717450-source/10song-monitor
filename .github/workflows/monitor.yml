@@ -2,7 +2,7 @@ name: 10song Contact Monitor
 
 on:
   schedule:
-    # 每30分钟运行一次（GitHub Actions cron最短5分钟，但30分钟更合理）
+    # 每30分钟运行一次
     - cron: '7,37 * * * *'
   workflow_dispatch: # 支持手动触发
 
@@ -22,11 +22,12 @@ jobs:
       - name: Install dependencies
         run: |
           pip install requests playwright
-          playwright install chromium --with-deps
+          playwright install chromium
+          # 安装 chromium 依赖（无沙箱模式需要）
+          playwright install-deps chromium
 
       - name: Download baseline
         run: |
-          # 尝试从上次运行的artifact中下载基线
           gh run download --name baseline --dir . 2>/dev/null || echo "No previous baseline found, using default"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
