@@ -1,0 +1,48 @@
+name: 10song Contact Monitor
+
+on:
+  schedule:
+    # 每30分钟运行一次（GitHub Actions cron最短5分钟，但30分钟更合理）
+    - cron: '7,37 * * * *'
+  workflow_dispatch: # 支持手动触发
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install requests playwright
+          playwright install chromium --with-deps
+
+      - name: Download baseline
+        run: |
+          # 尝试从上次运行的artifact中下载基线
+          gh run download --name baseline --dir . 2>/dev/null || echo "No previous baseline found, using default"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Run monitor
+        run: python monitor.py
+        env:
+          SENDKEY: ${{ secrets.SENDKEY }}
+          BASELINE_FILE: baseline.json
+
+      - name: Upload baseline artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline
+          path: baseline.json
+          retention-days: 90
+          overwrite: true
