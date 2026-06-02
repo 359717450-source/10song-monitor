@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 """
 10song.com 联系页面客户留言监控
-- 使用 Playwright 渲染 SPA 页面
+- 使用 Playwright 浏览器 SPA 页面
 - 对比基线检测新客户
 - 通过 Server酱 推送微信通知
 """
@@ -13,25 +14,17 @@ import re
 import requests
 from datetime import datetime
 
-SENDKEY = os.environ.get("SENDKEY", "SCT353652TslTsOQBCzCHq8YgWX6Vxd0a3")
+SENDKEY = os.environ.get("SENDKEY", "SCT353652Ts1TsOQBCzCHq8YgWX6Vxd0a3")
 CONTACT_URL = "https://www.10song.com/contact"
 BASELINE_FILE = os.environ.get("BASELINE_FILE", "baseline.json")
 
-INITIAL_BASELINE = [
-    {"name": "周*欧", "budget": "3000-5000", "message": "可以拍护肤品白底图吗？需要精修，可能要拍40张，总共10个产品，也就是每个产品拍四张不同角度图，麻烦尽快联系我吧"},
-    {"name": "刘*生", "budget": "10000-30000", "message": "最近我需要拍化妆品，高端效果，有5套，包含详情页制作，请问预算够吗？"},
-    {"name": "孙*生", "budget": "5000-10000", "message": "我需要拍鞋子，120件，这周可以拍吗？"},
-    {"name": "耿*士", "budget": "3000-5000", "message": "我是服装卖家，每个月需要拍50多套衣服，就在上海，希望尽快联系我哦"},
-    {"name": "李*生", "budget": "5000-10000", "message": "我有一些金属类的产品需要拍摄。量很大，希望可以优惠一些"},
-    {"name": "金*", "budget": "10000-30000", "message": "可以拍餐具吗？大约20件，需要白底图和场景图模特图。"},
-]
-
 
 def load_baseline():
+    """加载基线数据，不存在则返回空列表（首次运行）"""
     if os.path.exists(BASELINE_FILE):
         with open(BASELINE_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    return INITIAL_BASELINE.copy()
+    return []
 
 
 def save_baseline(data):
@@ -40,11 +33,11 @@ def save_baseline(data):
 
 
 def fetch_page_content():
-    """使用 Playwright 渲染 SPA 页面，兼容 GitHub Actions 网络环境"""
+    """使用 Playwright 浏览器 SPA 页面，适配 GitHub Actions 网络环境"""
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
-        # 启动 chromium，禁用沙箱（GitHub Actions 需要）
+        # 启动 chromium，禁沙箱（GitHub Actions 需要）
         browser = p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage"]
@@ -113,13 +106,12 @@ def parse_entries_from_text(text):
         if not in_section:
             continue
 
-        # 检测客户名（含 * 脱敏标记，且长度合理）
-        if ('*' in line or '＊' in line) and len(line) < 20:
+        # 检测客户名（含 * 号模糊标记，且长度合理）
+        if ('*' in line or '+' in line or '（' in line) and len(line) < 20:
             # 如果已经有 current_name，保存上一条
             if current_name and current_message:
                 entries.append({"name": current_name, "budget": current_budget or "N/A", "message": current_message})
             elif current_name:
-                # 有名字但没消息，也可能已经到最后了
                 pass
             current_name = line
             current_budget = None
@@ -135,7 +127,7 @@ def parse_entries_from_text(text):
                 continue
 
         # 检测消息（引号内容，50字以上更可能是客户留言）
-        msg_match = re.search(r'["""「](.{10,}?)[""」"\u201d]', line)
+        msg_match = re.search(r'[""\u300c](.{10,}?)[""\u300d\'\u201d]', line)
         if msg_match and current_name and not current_message:
             current_message = msg_match.group(1)
             continue
@@ -165,20 +157,20 @@ def find_new_entries(current, baseline):
 
 def push_to_wechat(new_entries):
     title = f"🚨 10song新客户提醒 ({len(new_entries)}条)"
-    desp = [f"## 发现 {len(new_entries)} 条新客户咨询\n"]
+    desc = [f"## 发现 {len(new_entries)} 条新客户留言\n"]
     for i, e in enumerate(new_entries, 1):
-        desp.append(f"### 客户 {i}")
-        desp.append(f"- **姓名**：{e['name']}")
-        desp.append(f"- **预算**：¥{e['budget']}")
-        desp.append(f"- **需求**：{e['message']}")
-        desp.append("")
-    desp.append(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    desp.append("🔗 https://www.10song.com/contact")
+        desc.append(f"### 客户 {i}")
+        desc.append(f"- **昵称**：{e['name']}")
+        desc.append(f"- **预算**：¥{e['budget']}")
+        desc.append(f"- **需求**：{e['message']}")
+        desc.append("")
+    desc.append(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    desc.append("🔗 https://www.10song.com/contact")
 
     try:
         resp = requests.post(
             f"https://sctapi.ftqq.com/{SENDKEY}.send",
-            data={"title": title, "desp": "\n".join(desp)},
+            data={"title": title, "desp": "\n".join(desc)},
             timeout=15
         )
         result = resp.json()
@@ -205,6 +197,14 @@ def main():
         return
 
     baseline = load_baseline()
+
+    # 首次运行：基线为空，静默初始化基线（不发通知）
+    if not baseline:
+        print(f"🆕 首次运行，将 {len(entries)} 条记录设为基线")
+        save_baseline(entries)
+        print("基线初始化完成，下次运行开始正式监控")
+        return
+
     new = find_new_entries(entries, baseline)
 
     if new:
