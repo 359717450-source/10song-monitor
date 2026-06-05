@@ -2,9 +2,8 @@ name: 10song Contact Monitor
 
 on:
   schedule:
-    # 每30分钟运行一次
     - cron: '7,37 * * * *'
-  workflow_dispatch: # 支持手动触发
+  workflow_dispatch:
 
 jobs:
   monitor:
@@ -30,20 +29,22 @@ jobs:
         uses: actions/cache@v4
         with:
           path: baseline.json
-          key: baseline-${{ github.sha }}
-          restore-keys: |
-            baseline-
+          key: baseline-cache
 
       - name: Run monitor
         run: python monitor.py
         env:
           SENDKEY: ${{ secrets.SENDKEY }}
           BASELINE_FILE: baseline.json
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - name: Save baseline cache
         if: always()
         uses: actions/cache@v4
         with:
           path: baseline.json
-          key: baseline-${{ github.sha }}
+          key: baseline-cache
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 
