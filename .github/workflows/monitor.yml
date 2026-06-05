@@ -23,15 +23,16 @@ jobs:
         run: |
           pip install requests playwright
           playwright install chromium
-          # 安装 chromium 依赖（无沙箱模式需要）
           playwright install-deps chromium
 
-      - name: Download baseline
-        run: |
-          gh run download --name baseline --dir . 2>/dev/null || echo "No previous baseline found, using default"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
+      - name: Restore baseline cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: baseline.json
+          key: baseline-${{ github.sha }}
+          restore-keys: |
+            baseline-
 
       - name: Run monitor
         run: python monitor.py
@@ -39,11 +40,10 @@ jobs:
           SENDKEY: ${{ secrets.SENDKEY }}
           BASELINE_FILE: baseline.json
 
-      - name: Upload baseline artifact
+      - name: Save baseline cache
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/cache@v4
         with:
-          name: baseline
           path: baseline.json
-          retention-days: 90
-          overwrite: true
+          key: baseline-${{ github.sha }}
+
