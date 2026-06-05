@@ -140,7 +140,7 @@ def main():
 
     new_messages = [
         m for m in messages
-        if compute_hash(m["name"], m.get("budget",""), m.get("message,""))
+        if compute_hash(m["name"], m.get("budget",""), m.get("message",""))
         not in baseline_hashes
     ]
 
