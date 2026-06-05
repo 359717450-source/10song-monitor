@@ -3,6 +3,7 @@
 """
 10Song Contact Page Monitor
 监视 10song.com/contact 页面的客户留言
+页面是 React SSR 渲染，数据直接内嵌在 HTML 中
 """
 
 import os
@@ -32,9 +33,12 @@ def load_baseline():
         try:
             with open(BASELINE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                return set(data.get("hashes", []))
+                hashes = data.get("hashes", [])
+                log(f"加载基线: {len(hashes)} 条历史留言")
+                return set(hashes)
         except Exception as e:
             log(f"加载基线失败: {e}")
+    log("基线文件不存在或为空，首次运行")
     return set()
 
 
@@ -42,7 +46,6 @@ def save_baseline(hashes):
     data = {"updated_at": datetime.now().isoformat(), "hashes": list(hashes)}
     with open(BASELINE_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    log(f"基线已保存到 {BASELINE_FILE}")
 
 
 def send_notify(messages):
@@ -74,7 +77,10 @@ def send_notify(messages):
 def fetch_and_parse():
     """
     获取页面并解析留言。
-    返回 [{"name":..., "budget":..., "message":...}, ...]
+    HTML 结构（React SSR 渲染，数据直接内嵌）：
+      <h4 class="font-bold text-gray-900">NAME</h4>
+      <p class="...line-clamp-3">"MESSAGE"</p>
+      预算范围</span><span class="...text-[#FF6B35]">BUDGET</span>
     """
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -85,43 +91,26 @@ def fetch_and_parse():
     resp.raise_for_status()
     html = resp.text
 
-    # 调试：保存 HTML 到文件（GitHub Actions 里可以通过 artifact 下载）
-    with open("debug_page.html", "w", encoding="utf-8") as f:
-        f.write(html[:5000])  # 只保存前 5000 字符
+    # 提取姓名（在 h4 标签中）
+    names = re.findall(r'<h4 class="font-bold text-gray-900">([^<]+)</h4>', html)
+    # 提取留言内容（在 <p class="...line-clamp-3">"..."</p> 中）
+    msgs  = re.findall(r'line-clamp-3">"([^"]*)"</p>', html)
+    # 提取预算（在 "预算范围</span><span ...>BUDGET</span>" 中）
+    budgets = re.findall(
+        r'预算范围</span><span class="text-sm font-semibold text-$$#FF6B35$$">([^<]+)</span>',
+        html
+    )
 
     messages = []
     seen = set()
-
-    # 模式1: 从 JSON 数据中提取（SPA 常用方式）
-    # 查找 <script> 标签里的 JSON 数据
-    json_patterns = [
-        r'"name"\s*:\s*"([^"]+)"\s*,\s*"budget"\s*:\s*"([^"]*)"\s*,\s*"message"\s*:\s*"([^"]*)"',
-        r'"name"\s*:\s*"([^"]+)"[^}]*"message"\s*:\s*"([^"]*)"',
-    ]
-    for pattern in json_patterns:
-        for m in re.finditer(pattern, html, re.DOTALL):
-            name    = m.group(1).strip()
-            budget  = m.group(2).strip() if len(m.groups()) > 1 else ""
-            msg     = m.group(3).strip() if len(m.groups()) > 2 else ""
-            key     = f"{name}|{budget}|{msg}"
-            if key not in seen and name:
-                seen.add(key)
-                messages.append({"name": name, "budget": budget, "message": msg})
-
-    # 模式2: 从 HTML 文本中匹配中文姓名（脱敏格式：王*生）
-    if not messages:
-        # 匹配 "姓名 | 预算 | 消息" 的模式
-        # 查找所有看起来像留言的块
-        # 这里根据实际页面结构需要调整
-        name_pattern = r'([\u4e00-\u9fa5]\*[\u4e00-\u9fa5]|[\u4e00-\u9fa5]{2,4})'
-        matches = re.findall(name_pattern, html)
-        if matches:
-            log(f"  正则匹配到 {len(matches)} 个可能的姓名")
-            for name in matches[:20]:
-                key = f"{name}||"
-                if key not in seen:
-                    seen.add(key)
-                    messages.append({"name": name, "budget": "", "message": ""})
+    for i in range(min(len(names), len(msgs), len(budgets))):
+        name   = names[i].strip()
+        budget = budgets[i].strip()
+        msg    = msgs[i].strip()
+        key    = f"{name}|{budget}|{msg}"
+        if key not in seen and name:
+            seen.add(key)
+            messages.append({"name": name, "budget": budget, "message": msg})
 
     return messages
 
@@ -132,8 +121,7 @@ def main():
 
     if not messages:
         log("未解析到留言，本次跳过")
-        # 保存一个空基线，避免下次全部推送
-        save_baseline(set())
+        # 保持现有基线不变（不保存空基线，避免下次全部推送）
         return
 
     log(f"解析到 {len(messages)} 条客户留言: {[m['name'] for m in messages]}")
@@ -165,3 +153,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
