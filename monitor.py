@@ -41,7 +41,7 @@ def save_baseline(data):
 
 
 def fetch_page_content():
-    """使用 Playwright 浏览器 SPA 页面，先访问首页切换中文，再读取 contact"""
+    """使用 Playwright 浏览器 SPA 页面，设置中文语言偏好"""
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
@@ -49,38 +49,16 @@ def fetch_page_content():
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage"]
         )
-        page = browser.new_page()
+        # 创建中文语言上下文的浏览器窗口，让 SPA 初始化就加载中文
+        context = browser.new_context(locale="zh-CN")
+        page = context.new_page()
 
-        # 第一步：访问首页，切换到中文（首页的语言切换更可靠）
-        print(f"[{datetime.now()}] 访问首页...")
-        try:
-            page.goto("https://www.10song.com", timeout=30000, wait_until="domcontentloaded")
-        except Exception as e:
-            print(f"首页加载超时（已忽略）: {e}")
-        page.wait_for_timeout(3000)
-
-        # 在首页切换语言
-        try:
-            lang_btn = page.locator('button:has-text("简体中文"), button:has-text("English"), [aria-label*="语言"], [aria-label*="language"]')
-            if lang_btn.count() > 0:
-                btn_text = lang_btn.first.inner_text().strip()
-                print(f"[{datetime.now()}] 首页语言: {btn_text}")
-                if "简体中文" in btn_text:
-                    lang_btn.first.click()
-                    page.wait_for_timeout(2000)
-                    print(f"[{datetime.now()}] 已切换到中文")
-                elif "English" in btn_text:
-                    print(f"[{datetime.now()}] 已是中文")
-        except Exception as e:
-            print(f"语言切换失败: {e}")
-
-        # 第二步：跳转到 contact 页面
-        print(f"[{datetime.now()}] 访问 contact 页面...")
+        print(f"[{datetime.now()}] 访问 contact 页面（中文环境）...")
         try:
             page.goto(CONTACT_URL, timeout=30000, wait_until="domcontentloaded")
         except Exception as e:
             print(f"contact 加载超时: {e}")
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(5000)
 
         # 等待客户留言区域渲染
         try:
@@ -237,5 +215,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
